@@ -151,6 +151,11 @@ export function getSupportedChains(): ChainInfo[] {
 }
 
 /**
+ * 链列表（用于筛选下拉框）
+ */
+export const CHAIN_LIST = Object.values(CHAINS);
+
+/**
  * 检查是否是 EVM 链
  */
 export function isEvmChain(chainId: ChainId): boolean {

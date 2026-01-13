@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Header } from "@/components/Header";
 import { TokenTable } from "@/components/TokenTable";
 import { ChainFilter } from "@/components/ChainFilter";
+import { AdvancedFilter, applyFilters, defaultFilterConditions, type FilterConditions } from "@/components/AdvancedFilter";
 import { useTokens } from "@/hooks/useTokens";
 import type { AlphaToken, ChainId } from "@/lib/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,10 +26,11 @@ function HomeContent() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<keyof AlphaToken>("marketCap");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [advancedFilters, setAdvancedFilters] = useState<FilterConditions>(defaultFilterConditions);
   
   // 获取数据
   const { 
-    tokens, 
+    tokens: rawTokens, 
     totalCount,
     lastUpdated,
     tokenCountsByChain,
@@ -41,6 +43,31 @@ function HomeContent() {
     sortBy,
     sortOrder,
   });
+  
+  // 应用高级筛选
+  const tokens = useMemo(() => {
+    return applyFilters(rawTokens, advancedFilters) as AlphaToken[];
+  }, [rawTokens, advancedFilters]);
+  
+  // 处理链筛选（同步到高级筛选）
+  const handleChainChange = useCallback((chain: ChainId | null) => {
+    setSelectedChain(chain);
+    setAdvancedFilters(prev => ({
+      ...prev,
+      chainId: chain || "all",
+    }));
+  }, []);
+  
+  // 处理高级筛选变化
+  const handleAdvancedFilterChange = useCallback((filters: FilterConditions) => {
+    setAdvancedFilters(filters);
+    // 同步链筛选
+    if (filters.chainId === "all") {
+      setSelectedChain(null);
+    } else {
+      setSelectedChain(filters.chainId as ChainId);
+    }
+  }, []);
   
   // 处理排序
   const handleSort = useCallback((key: keyof AlphaToken) => {
@@ -57,7 +84,7 @@ function HomeContent() {
       {/* 顶部导航 */}
       <Header
         lastUpdated={lastUpdated}
-        tokenCount={totalCount}
+        tokenCount={tokens.length}
         isRefreshing={isRefreshing}
         onRefresh={refresh}
         searchValue={search}
@@ -66,14 +93,27 @@ function HomeContent() {
       
       {/* 主内容 */}
       <main className="container py-6">
-        {/* 链筛选 */}
-        <div className="mb-6">
-          <ChainFilter
-            selectedChain={selectedChain}
-            onChainChange={setSelectedChain}
-            tokenCounts={tokenCountsByChain}
+        {/* 筛选栏 */}
+        <div className="mb-6 flex flex-wrap items-center gap-4">
+          <div className="flex-1">
+            <ChainFilter
+              selectedChain={selectedChain}
+              onChainChange={handleChainChange}
+              tokenCounts={tokenCountsByChain}
+            />
+          </div>
+          <AdvancedFilter
+            filters={advancedFilters}
+            onFiltersChange={handleAdvancedFilterChange}
           />
         </div>
+        
+        {/* 筛选结果统计 */}
+        {tokens.length !== totalCount && (
+          <div className="mb-4 text-sm text-muted-foreground">
+            显示 {tokens.length} / {totalCount} 个代币
+          </div>
+        )}
         
         {/* 代币表格 */}
         <div className="rounded-lg border bg-card">
