@@ -15,25 +15,35 @@ const BINANCE_FUTURES_BASE_URL = "https://fapi.binance.com";
 export async function fetchAlphaTokenList(): Promise<BinanceAlphaToken[]> {
   const url = `${BINANCE_ALPHA_BASE_URL}/wallet-direct/buw/wallet/cex/alpha/all/token/list`;
   
-  const response = await fetch(url, {
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-    next: { revalidate: 60 }, // 缓存60秒
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Failed to fetch alpha tokens: ${response.status}`);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+      },
+      next: { revalidate: 60 }, // 缓存60秒
+    });
+    
+    if (!response.ok) {
+      console.error(`Binance Alpha API HTTP error: ${response.status}`);
+      throw new Error(`Failed to fetch alpha tokens: ${response.status}`);
+    }
+    
+    const data: BinanceAlphaResponse = await response.json();
+    
+    if (data.code !== "000000") {
+      console.error(`Binance Alpha API error: ${data.code} - ${data.message}`);
+      throw new Error(`Binance Alpha API error: ${data.message}`);
+    }
+    
+    return data.data;
+  } catch (error) {
+    console.error("fetchAlphaTokenList error:", error);
+    throw error;
   }
-  
-  const data: BinanceAlphaResponse = await response.json();
-  
-  if (data.code !== "000000") {
-    throw new Error(`Binance Alpha API error: ${data.message}`);
-  }
-  
-  return data.data;
 }
 
 /**
