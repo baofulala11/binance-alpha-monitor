@@ -1,6 +1,6 @@
 /**
  * 代币列表 API
- * 聚合多个数据源，返回完整的代币信息
+ * 直接使用币安 Alpha API 返回的数据（已包含价格、市值等信息）
  */
 
 import { NextResponse } from "next/server";
@@ -9,70 +9,11 @@ import {
   getSpotListedSymbols,
   getFuturesListedSymbols,
 } from "@/lib/api/binance-alpha";
-import { 
-  fetchTokensData,
-  getBestPair,
-  getTokenLogo,
-} from "@/lib/api/dexscreener";
-import type { AlphaToken, LiquidityPoolInfo, DexScreenerPair } from "@/lib/types";
-import { groupBy, chunk } from "@/lib/utils/format";
+import type { AlphaToken } from "@/lib/types";
 import { getDexScreenerUrl, getTokenExplorerUrl } from "@/lib/utils/chains";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 30; // 30秒重新验证
-
-/**
- * 从 DexScreener 数据构建 LP 信息
- */
-function buildPoolInfo(pair: DexScreenerPair): LiquidityPoolInfo {
-  return {
-    dexId: pair.dexId,
-    dexName: pair.dexId.charAt(0).toUpperCase() + pair.dexId.slice(1),
-    pairAddress: pair.pairAddress,
-    quoteToken: pair.quoteToken.symbol,
-    liquidity: pair.liquidity?.usd || 0,
-    priceUsd: parseFloat(pair.priceUsd) || 0,
-    pairCreatedAt: pair.pairCreatedAt || 0,
-    url: pair.url,
-  };
-}
-
-/**
- * 处理单个链的代币数据
- */
-async function processChainTokens(
-  chainId: string,
-  tokens: Array<{ contractAddress: string; symbol: string; name: string; alphaId: number }>
-): Promise<Map<string, { pairs: DexScreenerPair[]; logo?: string }>> {
-  const result = new Map<string, { pairs: DexScreenerPair[]; logo?: string }>();
-  
-  // 按30个一批处理（DexScreener 限制）
-  const batches = chunk(tokens, 30);
-  
-  for (const batch of batches) {
-    const addresses = batch.map(t => t.contractAddress);
-    
-    try {
-      const pairs = await fetchTokensData(chainId, addresses);
-      
-      // 按代币地址分组
-      for (const token of batch) {
-        const tokenPairs = pairs.filter(
-          p => p.baseToken.address.toLowerCase() === token.contractAddress.toLowerCase()
-        );
-        
-        result.set(token.contractAddress.toLowerCase(), {
-          pairs: tokenPairs,
-          logo: getTokenLogo(tokenPairs),
-        });
-      }
-    } catch (error) {
-      console.error(`Error fetching chain ${chainId} tokens:`, error);
-    }
-  }
-  
-  return result;
-}
 
 export async function GET(request: Request) {
   try {
@@ -85,81 +26,65 @@ export async function GET(request: Request) {
     // 1. 并行获取所有基础数据
     const [alphaTokens, spotSymbols, futuresSymbols] = await Promise.all([
       fetchAlphaTokenList(),
-      getSpotListedSymbols(),
-      getFuturesListedSymbols(),
+      getSpotListedSymbols().catch(() => new Set<string>()),
+      getFuturesListedSymbols().catch(() => new Set<string>()),
     ]);
     
-    // 2. 按链分组
-    const tokensByChain = groupBy(alphaTokens, (t) => t.chainId);
-    
-    // 3. 并行处理每条链的代币
-    const chainResults = await Promise.all(
-      Object.entries(tokensByChain).map(async ([chainId, tokens]) => {
-        const dexData = await processChainTokens(chainId, tokens);
-        return { chainId, tokens, dexData };
-      })
-    );
-    
-    // 4. 聚合所有数据
-    const enrichedTokens: AlphaToken[] = [];
-    
-    for (const { chainId, tokens, dexData } of chainResults) {
-      for (const token of tokens) {
-        const data = dexData.get(token.contractAddress.toLowerCase());
-        const bestPair = data?.pairs ? getBestPair(data.pairs) : null;
+    // 2. 转换为前端需要的格式
+    const enrichedTokens: AlphaToken[] = alphaTokens.map((token) => {
+      const price = parseFloat(token.price) || null;
+      const marketCap = parseFloat(token.marketCap) || null;
+      const fdv = parseFloat(token.fdv) || null;
+      const liquidity = parseFloat(token.liquidity) || null;
+      const volume24h = parseFloat(token.volume24h) || null;
+      const priceChange24h = parseFloat(token.percentChange24h) || null;
+      const holders = parseInt(token.holders) || null;
+      
+      // 计算流通率
+      const circulationRate = marketCap && fdv && fdv > 0 ? marketCap / fdv : null;
+      
+      return {
+        // 基础信息
+        alphaId: token.alphaId,
+        symbol: token.symbol,
+        name: token.name,
+        chainId: token.chainId,
+        chainName: token.chainName,
+        contractAddress: token.contractAddress,
+        logoUrl: token.iconUrl,
         
-        // 计算流通率
-        const marketCap = bestPair?.marketCap || null;
-        const fdv = bestPair?.fdv || null;
-        const circulationRate = marketCap && fdv ? marketCap / fdv : null;
+        // 市场数据（直接从 Binance API 获取）
+        priceUsd: price,
+        marketCap: marketCap,
+        fdv: fdv,
+        liquidity: liquidity,
+        volume24h: volume24h,
+        priceChange24h: priceChange24h,
         
-        // 构建所有 LP 信息
-        const allPools: LiquidityPoolInfo[] = (data?.pairs || []).map(buildPoolInfo);
+        // 计算字段
+        circulationRate,
         
-        const enrichedToken: AlphaToken = {
-          // 基础信息
-          alphaId: token.alphaId,
-          symbol: token.symbol,
-          name: token.name,
-          chainId: chainId,
-          contractAddress: token.contractAddress,
-          logoUrl: data?.logo || bestPair?.info?.imageUrl,
-          
-          // 市场数据
-          priceUsd: bestPair ? parseFloat(bestPair.priceUsd) : null,
-          marketCap: marketCap,
-          fdv: fdv,
-          liquidity: bestPair?.liquidity?.usd || null,
-          volume24h: bestPair?.volume?.h24 || null,
-          priceChange24h: bestPair?.priceChange?.h24 || null,
-          
-          // 计算字段
-          circulationRate,
-          
-          // 持有者（需要 Birdeye/Moralis，此处为 null）
-          holders: null,
-          
-          // LP 信息
-          mainPool: bestPair ? buildPoolInfo(bestPair) : null,
-          allPools,
-          
-          // 上架状态
-          isSpotListed: spotSymbols.has(token.symbol.toUpperCase()),
-          isFuturesListed: futuresSymbols.has(token.symbol.toUpperCase()),
-          
-          // 时间
-          listingTime: bestPair?.pairCreatedAt || null,
-          
-          // 链接
-          dexScreenerUrl: getDexScreenerUrl(chainId, token.contractAddress),
-          explorerUrl: getTokenExplorerUrl(chainId, token.contractAddress),
-        };
+        // 持有者数据
+        holders: holders,
         
-        enrichedTokens.push(enrichedToken);
-      }
-    }
+        // LP 信息（简化）
+        mainPool: null,
+        allPools: [],
+        
+        // 上架状态
+        isSpotListed: token.listingCex || spotSymbols.has(token.symbol.toUpperCase()),
+        isFuturesListed: futuresSymbols.has(token.symbol.toUpperCase()),
+        
+        // 时间
+        listingTime: token.listingTime || null,
+        
+        // 链接
+        dexScreenerUrl: getDexScreenerUrl(token.chainId, token.contractAddress),
+        explorerUrl: getTokenExplorerUrl(token.chainId, token.contractAddress),
+      };
+    });
     
-    // 5. 应用筛选
+    // 3. 应用筛选
     let filteredTokens = enrichedTokens;
     
     if (chainFilter) {
@@ -174,13 +99,13 @@ export async function GET(request: Request) {
       );
     }
     
-    // 6. 排序
+    // 4. 排序
     filteredTokens.sort((a, b) => {
       const aValue = a[sortBy as keyof AlphaToken];
       const bValue = b[sortBy as keyof AlphaToken];
       
-      if (aValue === null) return 1;
-      if (bValue === null) return -1;
+      if (aValue === null || aValue === undefined) return 1;
+      if (bValue === null || bValue === undefined) return -1;
       
       if (typeof aValue === "number" && typeof bValue === "number") {
         return sortOrder === "desc" ? bValue - aValue : aValue - bValue;
@@ -204,7 +129,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Token list API error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch tokens" },
+      { error: "Failed to fetch tokens", details: String(error) },
       { status: 500 }
     );
   }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Github, Search, X } from "lucide-react";
+import { RefreshCw, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 
 interface HeaderProps {
@@ -98,16 +98,6 @@ export function Header({
             )} />
             <span className="hidden sm:inline ml-1">刷新</span>
           </Button>
-          
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="ghost" size="icon">
-              <Github className="h-4 w-4" />
-            </Button>
-          </a>
         </div>
       </div>
     </header>

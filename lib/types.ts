@@ -27,15 +27,40 @@ export interface ChainInfo {
 // 币安 Alpha API 类型
 // ============================================
 
-/** 币安 Alpha 代币原始数据 */
+/** 币安 Alpha 代币原始数据 (2024新格式) */
 export interface BinanceAlphaToken {
-  alphaId: number;
+  tokenId: string;
+  alphaId: string;  // 现在是字符串，如 "ALPHA_535"
   symbol: string;
   name: string;
   chainId: string;
+  chainName: string;
+  chainIconUrl?: string;
   contractAddress: string;
-  decimals?: number;
-  logoUrl?: string;
+  decimals: number;
+  iconUrl?: string;
+  
+  // 市场数据（API 直接返回）
+  price: string;
+  percentChange24h: string;
+  volume24h: string;
+  marketCap: string;
+  fdv: string;
+  liquidity: string;
+  totalSupply: string;
+  circulatingSupply: string;
+  holders: string;
+  
+  // 上架状态
+  listingCex: boolean;
+  cexCoinName: string;
+  hotTag: boolean;
+  offline: boolean;
+  
+  // 其他字段
+  listingTime?: number;
+  onlineTge?: boolean;
+  onlineAirdrop?: boolean;
 }
 
 /** 币安 Alpha API 响应 */
@@ -125,10 +150,11 @@ export interface LiquidityPoolInfo {
 /** 聚合后的代币数据 */
 export interface AlphaToken {
   // 基础信息 (from Binance Alpha)
-  alphaId: number;
+  alphaId: string;  // 改为字符串
   symbol: string;
   name: string;
   chainId: ChainId;
+  chainName?: string;
   contractAddress: string;
   logoUrl?: string;
   

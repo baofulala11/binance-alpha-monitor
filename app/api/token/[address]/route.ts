@@ -62,7 +62,7 @@ export async function GET(
     const fdv = birdeyeData?.fdv || bestPair?.fdv || null;
     
     const token: AlphaToken = {
-      alphaId: 0,
+      alphaId: "",
       symbol: bestPair?.baseToken.symbol || "",
       name: bestPair?.baseToken.name || "",
       chainId,
